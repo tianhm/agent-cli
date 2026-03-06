@@ -56,6 +56,25 @@ class WolfConfig:
     obsidian_vault_path: str = ""         # Path to Obsidian vault (empty = disabled)
     obsidian_scan_interval_ticks: int = 60  # Re-scan vault every hour
 
+    # TWAP execution (Aster-inspired)
+    twap_threshold_usd: float = 5000.0       # Use TWAP for entries above this notional
+    twap_duration_ticks: int = 5             # Spread entry over N ticks
+    twap_urgency: float = 0.7               # 0.0 (passive) to 1.0 (aggressive)
+
+    # Portfolio risk (Aster-inspired)
+    portfolio_risk_enabled: bool = True
+    portfolio_max_correlated: int = 2
+    portfolio_max_same_direction: int = 3
+    portfolio_margin_warn: float = 0.7
+    portfolio_margin_block: float = 0.9
+
+    # Smart money tracking (Aster-inspired)
+    smart_money_enabled: bool = False
+    smart_money_addresses: List[str] = field(default_factory=list)
+    smart_money_min_position_usd: float = 10_000.0
+    smart_money_conviction_threshold: int = 2
+    smart_money_poll_interval_ticks: int = 5
+
     # Instrument filters
     excluded_instruments: List[str] = field(default_factory=list)
 

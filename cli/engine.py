@@ -16,6 +16,7 @@ from sdk.strategy_sdk.base import BaseStrategy, StrategyContext
 
 from cli.display import shutdown_summary, tick_line
 from cli.order_manager import OrderManager
+from execution.order_book import ManagedOrderBook
 
 log = logging.getLogger("engine")
 ZERO = Decimal("0")
@@ -59,6 +60,9 @@ class TradingEngine:
         # Optional DSL guard (composable mode — set via dsl_config)
         self.dsl_guard = None   # type: ignore[assignment]
         self.dsl_config = None  # type: ignore[assignment]
+
+        # Managed order book (brackets, conditionals, pegged orders)
+        self.managed_orders = ManagedOrderBook()
 
         # Optional markout tracker (measures fill quality vs anomaly state)
         self.markout_tracker = None  # type: ignore[assignment]
@@ -147,6 +151,10 @@ class TradingEngine:
 
         # 4. Run strategy
         decisions = self.strategy.on_tick(snapshot, context=context)
+
+        # 4b. Process managed orders (brackets, conditionals, pegged)
+        managed_decisions = self.managed_orders.on_tick(snapshot)
+        decisions.extend(managed_decisions)
 
         # 5. Filter through risk manager
         order_dicts = [

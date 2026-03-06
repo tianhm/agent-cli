@@ -34,6 +34,7 @@ from modules.scanner_guard import ScannerGuard
 from modules.wolf_config import WolfConfig
 from modules.wolf_engine import WolfAction, WolfEngine
 from modules.wolf_state import WolfSlot, WolfState, WolfStateStore
+from execution.portfolio_risk import PortfolioRiskManager, PortfolioRiskConfig
 from parent.store import JSONLStore
 
 log = logging.getLogger("wolf_runner")
@@ -112,6 +113,29 @@ class WolfRunner:
             except Exception as e:
                 log.warning("Obsidian integration failed: %s", e)
 
+        # Portfolio risk manager
+        self.portfolio_risk = PortfolioRiskManager(PortfolioRiskConfig(
+            max_correlated_positions=self.config.portfolio_max_correlated,
+            max_same_direction_total=self.config.portfolio_max_same_direction,
+            margin_utilization_warn=self.config.portfolio_margin_warn,
+            margin_utilization_block=self.config.portfolio_margin_block,
+            enabled=self.config.portfolio_risk_enabled,
+        ))
+
+        # Smart money tracker (optional)
+        self.smart_money_tracker = None
+        if self.config.smart_money_enabled and self.config.smart_money_addresses:
+            from modules.smart_money.tracker import SmartMoneyTracker
+            from modules.smart_money.config import SmartMoneyConfig
+            sm_cfg = SmartMoneyConfig(
+                watch_addresses=self.config.smart_money_addresses,
+                min_position_usd=self.config.smart_money_min_position_usd,
+                conviction_threshold=self.config.smart_money_conviction_threshold,
+                poll_interval_ticks=self.config.smart_money_poll_interval_ticks,
+            )
+            self.smart_money_tracker = SmartMoneyTracker(sm_cfg)
+            log.info("Smart money tracker: watching %d addresses", len(sm_cfg.watch_addresses))
+
         # Scheduled task tracking (UTC hour -> last executed date string)
         self._last_scheduled: Dict[str, str] = {}
 
@@ -189,6 +213,14 @@ class WolfRunner:
         # 3. Run movers (every tick)
         movers_signals = self._run_movers()
 
+        # 3b. Run smart money tracker
+        smart_money_signals = []
+        if self.smart_money_tracker:
+            try:
+                smart_money_signals = self.smart_money_tracker.scan(self.hl)
+            except Exception as e:
+                log.warning("Smart money scan failed: %s", e)
+
         # 4. Run scanner (every N ticks)
         scanner_opps = []
         if tick % self.config.scanner_interval_ticks == 0:
@@ -213,6 +245,7 @@ class WolfRunner:
             slot_prices=slot_prices,
             slot_dsl_results=slot_dsl_results,
             now_ms=now_ms,
+            smart_money_signals=smart_money_signals,
         )
 
         # 7. Execute actions
@@ -388,6 +421,24 @@ class WolfRunner:
             mid = float(mids.get(coin, "0"))
             if mid <= 0:
                 log.warning("Cannot enter %s: no mid price", action.instrument)
+                slot.status = "empty"
+                slot.instrument = ""
+                return
+
+            # Portfolio risk check
+            current_positions = {}
+            for s in self.state.active_slots():
+                if s.is_active():
+                    current_positions[s.instrument] = {
+                        "direction": s.direction,
+                        "notional": s.margin_allocated * self.config.leverage,
+                    }
+
+            ok, reason = self.portfolio_risk.check_entry(
+                action.instrument, action.direction, current_positions)
+            if not ok:
+                log.warning("Portfolio risk blocked entry for %s: %s",
+                            action.instrument, reason)
                 slot.status = "empty"
                 slot.instrument = ""
                 return
