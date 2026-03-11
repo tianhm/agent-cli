@@ -178,18 +178,97 @@ class TestRiskManagerWallet:
     def test_check_wallet_daily_loss_under_limit(self):
         rm = RiskManager()
         assert not rm.check_wallet_daily_loss("w1", -200, 500)
+        assert "w1" not in rm.state.blocked_wallets
 
     def test_check_wallet_daily_loss_at_limit(self):
         rm = RiskManager()
         assert rm.check_wallet_daily_loss("w1", -500, 500)
+        assert "w1" in rm.state.blocked_wallets
 
     def test_check_wallet_daily_loss_over_limit(self):
         rm = RiskManager()
         assert rm.check_wallet_daily_loss("w1", -600, 500)
+        assert "w1" in rm.state.blocked_wallets
 
     def test_check_wallet_daily_loss_no_limit(self):
         rm = RiskManager()
         assert not rm.check_wallet_daily_loss("w1", -9999, 0)
+
+    def test_wallet_block_clears_on_recovery(self):
+        rm = RiskManager()
+        rm.check_wallet_daily_loss("w1", -600, 500)
+        assert "w1" in rm.state.blocked_wallets
+        # PnL recovered
+        rm.check_wallet_daily_loss("w1", -200, 500)
+        assert "w1" not in rm.state.blocked_wallets
+
+    def test_clear_wallet_blocks(self):
+        rm = RiskManager()
+        rm.check_wallet_daily_loss("w1", -600, 500)
+        rm.check_wallet_daily_loss("w2", -300, 200)
+        assert len(rm.state.blocked_wallets) == 2
+        rm.clear_wallet_blocks()
+        assert len(rm.state.blocked_wallets) == 0
+
+    def test_blocked_wallets_serialized(self):
+        rm = RiskManager()
+        rm.check_wallet_daily_loss("w1", -600, 500)
+        d = rm.to_dict()
+        rm2 = RiskManager.from_dict(d)
+        assert "w1" in rm2.state.blocked_wallets
+
+
+# ---------------------------------------------------------------------------
+# WalletManager address uniqueness
+# ---------------------------------------------------------------------------
+
+class TestWalletManagerAddressUniqueness:
+    def test_duplicate_address_raises(self):
+        wm = WalletManager()
+        wm.register("w1", WalletConfig(address="0xABC"))
+        with pytest.raises(ValueError, match="already registered"):
+            wm.register("w2", WalletConfig(address="0xABC"))
+
+    def test_duplicate_address_case_insensitive(self):
+        wm = WalletManager()
+        wm.register("w1", WalletConfig(address="0xabc"))
+        with pytest.raises(ValueError, match="already registered"):
+            wm.register("w2", WalletConfig(address="0xABC"))
+
+    def test_same_wallet_id_can_update(self):
+        wm = WalletManager()
+        wm.register("w1", WalletConfig(address="0xABC", budget=1000))
+        wm.register("w1", WalletConfig(address="0xABC", budget=2000))
+        assert wm.get("w1").budget == 2000
+
+    def test_empty_address_no_conflict(self):
+        wm = WalletManager()
+        wm.register("w1", WalletConfig(address=""))
+        wm.register("w2", WalletConfig(address=""))  # no raise
+
+
+# ---------------------------------------------------------------------------
+# Runner wallet_manager initialization
+# ---------------------------------------------------------------------------
+
+class TestRunnerWalletInit:
+    def test_runner_builds_wallet_manager_single(self):
+        from skills.apex.scripts.standalone_runner import ApexRunner
+        mock_hl = MagicMock()
+        runner = ApexRunner(hl=mock_hl, resume=False)
+        assert not runner.wallet_manager.is_multi_wallet
+        assert runner.wallet_manager.get_default().budget == 10_000.0
+
+    def test_runner_builds_wallet_manager_multi(self):
+        from skills.apex.scripts.standalone_runner import ApexRunner
+        mock_hl = MagicMock()
+        cfg = ApexConfig(wallet_config={
+            "w1": {"wallet_id": "w1", "address": "0xA", "budget": 5000},
+            "w2": {"wallet_id": "w2", "address": "0xB", "budget": 8000},
+        })
+        runner = ApexRunner(hl=mock_hl, config=cfg, resume=False)
+        assert runner.wallet_manager.is_multi_wallet
+        assert runner.wallet_manager.get("w1").budget == 5000
 
 
 # ---------------------------------------------------------------------------
@@ -206,3 +285,12 @@ class TestKeystoreForAddress:
         with patch.dict(os.environ, {}, clear=True):
             with patch("cli.keystore._load_env_password", return_value=""):
                 assert get_keystore_key_for_address("0xABC") is None
+
+    def test_resolve_password_shared(self):
+        from cli.keystore import _resolve_password
+        with patch.dict(os.environ, {"HL_KEYSTORE_PASSWORD": "test123"}, clear=True):
+            assert _resolve_password() == "test123"
+        with patch.dict(os.environ, {}, clear=True):
+            with patch("cli.keystore._load_env_password", return_value="from_env_file"):
+                assert _resolve_password() == "from_env_file"
+        assert _resolve_password("explicit") == "explicit"

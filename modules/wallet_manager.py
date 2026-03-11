@@ -6,9 +6,11 @@ Multi-wallet is opt-in via YAML/JSON config.
 """
 from __future__ import annotations
 
-import json
+import logging
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
+
+log = logging.getLogger("wallet_manager")
 
 
 @dataclass
@@ -76,7 +78,18 @@ class WalletManager:
         return None
 
     def register(self, wallet_id: str, config: WalletConfig) -> None:
-        """Register or update a wallet configuration."""
+        """Register or update a wallet configuration.
+
+        Raises ValueError if the address is already registered under a
+        different wallet_id (prevents non-deterministic get_by_address).
+        """
+        if config.address:
+            for wid, existing in self._wallets.items():
+                if wid != wallet_id and existing.address and existing.address.lower() == config.address.lower():
+                    raise ValueError(
+                        f"Address {config.address} already registered under wallet '{wid}'. "
+                        f"Each wallet must have a unique address."
+                    )
         config.wallet_id = wallet_id
         self._wallets[wallet_id] = config
 

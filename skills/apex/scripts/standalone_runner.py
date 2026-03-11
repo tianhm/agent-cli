@@ -37,6 +37,7 @@ from modules.apex_engine import ApexAction, ApexEngine
 from modules.apex_state import ApexSlot, ApexState, ApexStateStore
 from execution.portfolio_risk import PortfolioRiskManager, PortfolioRiskConfig
 from modules.reconciliation import ReconciliationEngine
+from modules.wallet_manager import WalletManager
 from parent.store import JSONLStore
 
 log = logging.getLogger("apex_runner")
@@ -67,6 +68,19 @@ class ApexRunner:
         self.json_output = json_output
         self.data_dir = data_dir
         self.builder = builder
+
+        # Wallet manager (single-wallet by default, multi-wallet via config)
+        if self.config.wallet_config:
+            self.wallet_manager = WalletManager.from_yaml_section(self.config.wallet_config)
+            log.info("Multi-wallet mode: %d wallets configured", len(self.wallet_manager.wallet_ids))
+        else:
+            self.wallet_manager = WalletManager.from_single(
+                budget=self.config.total_budget,
+                leverage=self.config.leverage,
+                guard_preset=self.config.guard_preset,
+                max_slots=self.config.max_slots,
+                daily_loss_limit=self.config.daily_loss_limit,
+            )
 
         # Core engine (pure, zero I/O)
         self.engine = ApexEngine(self.config)
@@ -644,6 +658,7 @@ class ApexRunner:
                 slot.last_signal_seen_ts = slot.entry_ts
                 slot.high_water_roe = 0.0
                 slot.current_roe = 0.0
+                slot.wallet_id = self.wallet_manager.get_default().wallet_id
 
                 # Create Guard bridge for this slot
                 self._create_guard_bridge(slot)
