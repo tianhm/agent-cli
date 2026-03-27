@@ -851,11 +851,6 @@ class ApexRunner:
             )
 
             exit_price = float(fill.price) if fill else mid
-
-            # Close the slot IMMEDIATELY after the fill succeeds.
-            # PnL calculation must not prevent slot cleanup — otherwise
-            # the guard re-triggers exit next tick, sending duplicate orders
-            # that can flip the position direction.
             pnl = 0.0
             try:
                 if slot.entry_price > 0 and exit_price > 0:
