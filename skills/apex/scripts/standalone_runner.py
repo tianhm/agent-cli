@@ -656,7 +656,7 @@ class ApexRunner:
         """Run reconciliation at startup to detect orphans from crashes."""
         try:
             account = self.hl.get_account_state()
-            positions = account.get("assetPositions", [])
+            positions = account.get("positions", [])
             slot_dicts = [s.to_dict() for s in self.state.slots]
             discrepancies = self.recon_engine.reconcile(slot_dicts, positions)
 
@@ -695,7 +695,7 @@ class ApexRunner:
         # but we need the signed szi. Fetch account again for this position.
         try:
             account = self.hl.get_account_state()
-            positions = account.get("assetPositions", [])
+            positions = account.get("positions", [])
             szi = 0.0
             entry_px = 0.0
             for pos in positions:
@@ -720,18 +720,18 @@ class ApexRunner:
 
             # Create a GUARD bridge for the adopted position
             guard_cfg = GUARD_PRESETS.get(self.config.guard_preset, GUARD_PRESETS["tight"])
-            if self.config.guard_leverage_override:
-                guard_cfg = GuardConfig(
-                    **{**guard_cfg.__dict__, "leverage": self.config.guard_leverage_override}
-                )
-            guard = GuardBridge.create(
-                position_id=f"apex-slot-{empty.slot_id}",
+            guard_cfg = GuardConfig.from_dict(guard_cfg.to_dict())  # copy
+            guard_cfg.direction = direction
+            guard_cfg.leverage = self.config.guard_leverage_override or self.config.leverage
+            guard_state = GuardState.new(
+                instrument=discrepancy.instrument,
                 entry_price=entry_px,
                 position_size=size,
                 direction=direction,
-                config=guard_cfg,
-                data_dir=f"{self.data_dir}/guard",
+                position_id=f"apex-slot-{empty.slot_id}",
             )
+            guard_store = GuardStateStore(data_dir=f"{self.data_dir}/guard")
+            guard = GuardBridge(config=guard_cfg, state=guard_state, store=guard_store)
             self.guard_bridges[empty.slot_id] = guard
 
             log.info("ADOPTED orphan %s into slot %d: %s %.4f @ %.2f",
@@ -743,7 +743,7 @@ class ApexRunner:
         """Health check — reconcile positions against exchange state."""
         try:
             account = self.hl.get_account_state()
-            positions = account.get("assetPositions", [])
+            positions = account.get("positions", [])
             slot_dicts = [s.to_dict() for s in self.state.slots]
             discrepancies = self.recon_engine.reconcile(slot_dicts, positions)
 
@@ -887,19 +887,22 @@ class ApexRunner:
                 builder=self.builder,
             )
 
-            exit_price = fill.price if fill else mid
+            exit_price = float(fill.price) if fill else mid
             pnl = 0.0
-            if slot.entry_price > 0 and exit_price > 0:
-                if slot.direction == "long":
-                    pnl = (exit_price - slot.entry_price) / slot.entry_price * slot.margin_allocated * self.config.leverage
-                else:
-                    pnl = (slot.entry_price - exit_price) / slot.entry_price * slot.margin_allocated * self.config.leverage
+            try:
+                if slot.entry_price > 0 and exit_price > 0:
+                    if slot.direction == "long":
+                        pnl = (exit_price - slot.entry_price) / slot.entry_price * slot.margin_allocated * self.config.leverage
+                    else:
+                        pnl = (slot.entry_price - exit_price) / slot.entry_price * slot.margin_allocated * self.config.leverage
+            except Exception as e:
+                log.warning("PnL calculation failed for slot %d: %s (closing with pnl=0)", slot.slot_id, e)
 
             self._close_slot(slot, reason=action.reason, pnl=pnl)
             self._log_trade(
                 tick=self.state.tick_count, instrument=action.instrument,
                 side=side, price=float(exit_price),
-                quantity=slot.entry_size, fee=float(getattr(fill, "fee", 0)) if fill else 0,
+                quantity=float(slot.entry_size), fee=float(getattr(fill, "fee", 0)) if fill else 0,
                 meta=action.reason,
             )
             log.info("EXITED slot %d: %s %s @ %.4f PnL=$%.2f (%s)",
