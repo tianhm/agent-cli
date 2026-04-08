@@ -104,10 +104,39 @@ class ApexRunner:
         else:
             self.state = ApexState.new(self.config.max_slots)
 
-        # Sub-guards
-        self.pulse_guard = PulseGuard()
-        self.radar_guard = RadarGuard()
+        # Sub-guards. When the APEX config has a preset_name that maps to
+        # known pulse/radar presets (e.g. "competition"), construct the
+        # guards with the matching preset rather than the default config.
+        # This is the only way to lower pulse/radar thresholds at boot —
+        # they ignore APEX-level CLI flags otherwise.
+        from modules.pulse_config import PULSE_PRESETS
+        from modules.radar_config import RADAR_PRESETS
+        preset_name = (getattr(self.config, "preset_name", "") or "").lower()
+        pulse_cfg = PULSE_PRESETS.get(preset_name)
+        radar_cfg = RADAR_PRESETS.get(preset_name)
+        self.pulse_guard = PulseGuard(config=pulse_cfg) if pulse_cfg else PulseGuard()
+        self.radar_guard = RadarGuard(config=radar_cfg) if radar_cfg else RadarGuard()
         self.radar_guard.history.path = f"{data_dir}/radar-history.json"
+        if pulse_cfg or radar_cfg:
+            log.info(
+                "Sub-guards loaded with preset %r: pulse=%s radar=%s",
+                preset_name, "preset" if pulse_cfg else "default",
+                "preset" if radar_cfg else "default",
+            )
+
+        # Sync the APEX config's radar_score_threshold to the radar guard at
+        # boot. Without this, the radar guard always uses RadarConfig's default
+        # score_threshold (150) regardless of APEX preset, and the only way to
+        # change it was via a runtime config-override JSON file. The
+        # `competition` preset relies on this sync to lower the threshold to
+        # 110 at startup.
+        try:
+            self.radar_guard.config.score_threshold = self.config.radar_score_threshold
+            self.radar_guard.engine = type(self.radar_guard.engine)(self.radar_guard.config)
+            log.info("Radar guard score_threshold synced to APEX preset: %d",
+                     self.config.radar_score_threshold)
+        except Exception as e:
+            log.warning("Failed to sync radar score_threshold at boot: %s", e)
 
         # Clear radar scan history on --fresh so stale signals don't persist
         if not resume:
