@@ -166,9 +166,21 @@ APEX_PRESETS: Dict[str, ApexConfig] = {
     #   v2 (2026-04-09): drop leverage to 5x, raise entry thresholds, longer
     #     min hold, much tighter daily loss limit so losing agents pause
     #     instead of bleeding through their entire balance.
+    #
+    #   v3 (2026-04-09): Phase 0 of profitability roadmap. Baseline snapshot
+    #     showed 0/14 agents profitable, fleet PnL -$9.4k. Root cause: exit
+    #     logic structurally asymmetric. Hard stop at -5% ROE on 5x lev = -1%
+    #     price move; +0.5% entry slippage + fees meant positions stopped on
+    #     noise within minutes, while stagnation TP at +3% ROE was blocked
+    #     by the 30-min min_hold. v3 fixes:
+    #       - leverage 5x → 3x (more headroom per stop)
+    #       - max_negative_roe -5% → -10% (wider stop, ~3.3% price at 3x)
+    #       - SLIPPAGE_FACTOR 1.005 → 1.002 (in hl_adapter.py)
+    #       - stagnation TP allowed to fire during min_hold (apex_engine.py)
     "competition": ApexConfig(
         max_slots=3,
-        leverage=5.0,                     # v2: was 15.0 — biggest single risk control
+        leverage=3.0,                     # v3: 5.0 → 3.0 (more headroom per stop)
+        max_negative_roe=-10.0,           # v3: -5.0 → -10.0 (~3.3% price at 3x lev)
         radar_score_threshold=140,        # v2: was 110 — only stronger signals
         pulse_confidence_threshold=60.0,  # v2: was 45.0 — same logic for pulse
         radar_interval_ticks=5,           # was 15 — scan 3x more often

@@ -19,7 +19,7 @@ from parent.hl_proxy import HLFill, HLProxy, MockHLProxy
 log = logging.getLogger("hl_adapter")
 
 # --- Constants ---
-SLIPPAGE_FACTOR = 1.005       # IOC slippage multiplier to cross the spread
+SLIPPAGE_FACTOR = 1.002       # IOC slippage multiplier to cross the spread (v3: 50bps→20bps; tighter to reduce entry cost on thin yex markets)
 SIG_FIGS = 5                  # HL uses 5 significant figures for prices
 CIRCUIT_BREAKER_THRESHOLD = 5  # consecutive API failures before circuit opens
 MAX_RATE_LIMIT_RETRIES = 3
