@@ -188,15 +188,13 @@ APEX_PRESETS: Dict[str, ApexConfig] = {
         max_slots=3,
         leverage=3.0,                     # v3: 5.0 → 3.0 (more headroom per stop)
         max_negative_roe=-10.0,           # v3: -5.0 → -10.0 (~3.3% price at 3x lev)
-        flip_signal_direction=True,       # v4: 0/64 wins = inverted signals; flip for mean-reversion
-        # v3.1: DISABLE RADAR. Attribution data over 64 trades showed radar
-        # produced 51 trades with 0% win rate and -$17/trade avg. It fires
-        # ~once every 9 min and every entry is wrong-way. Score threshold
-        # doesn't help — the fundamental signal has no edge on BTCSWP.
-        # Set threshold impossibly high so no radar entry ever qualifies.
-        radar_score_threshold=130,        # v4.4: back to 130, fee problem solved by $11k budget
-        pulse_confidence_threshold=45.0,  # v4.4: back to 45, need signal volume at correct position size
-        reflect_auto_adjust=False,        # v4.5: disable — REFLECT was overriding our thresholds to 140/55
+        flip_signal_direction=False,       # v5: reverted — 40 flipped trades still 0% WR, signals are noise
+        # v5: ALL ENTRIES DISABLED. 100+ trades across flip/no-flip, 0% WR.
+        # Pulse/radar signals have no directional edge on YEX markets.
+        # Pausing entries while we research and build new strategies.
+        radar_score_threshold=9999,       # v5: disabled
+        pulse_confidence_threshold=95.0,  # v5: effectively disabled
+        reflect_auto_adjust=False,        # v4.5: disable — REFLECT overrides our thresholds
         radar_interval_ticks=5,           # still scanning for attribution data
         min_hold_ms=1_800_000,            # v2: was 600_000 (10min) -> 30 min
         slot_cooldown_ms=60_000,          # 1 min instead of 5
