@@ -181,9 +181,14 @@ APEX_PRESETS: Dict[str, ApexConfig] = {
         max_slots=3,
         leverage=3.0,                     # v3: 5.0 → 3.0 (more headroom per stop)
         max_negative_roe=-10.0,           # v3: -5.0 → -10.0 (~3.3% price at 3x lev)
-        radar_score_threshold=120,        # v3: 140 → 120 (single-asset scans need a lower bar)
-        pulse_confidence_threshold=45.0,  # v3: 60 → 45 (observed FUNDING_FLIP on BTCSWP at conf=50, so 60 was too high to ever fire)
-        radar_interval_ticks=5,           # was 15 — scan 3x more often
+        # v3.1: DISABLE RADAR. Attribution data over 64 trades showed radar
+        # produced 51 trades with 0% win rate and -$17/trade avg. It fires
+        # ~once every 9 min and every entry is wrong-way. Score threshold
+        # doesn't help — the fundamental signal has no edge on BTCSWP.
+        # Set threshold impossibly high so no radar entry ever qualifies.
+        radar_score_threshold=9999,       # effectively disabled until Phase 2
+        pulse_confidence_threshold=45.0,  # v3: 60 → 45 (observed FUNDING_FLIP on BTCSWP at conf=50)
+        radar_interval_ticks=5,           # still scanning for attribution data
         min_hold_ms=1_800_000,            # v2: was 600_000 (10min) -> 30 min
         slot_cooldown_ms=60_000,          # 1 min instead of 5
         daily_loss_limit=200.0,           # v2: was 2000 — pause losing agents fast
